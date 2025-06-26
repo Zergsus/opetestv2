@@ -29,7 +29,10 @@ if 'current_question' not in st.session_state:
 
 # Función para obtener nombre del examen desde el ID de pregunta
 def extraer_nombre_examen(id_pregunta):
-    return re.sub(r'_pregunta\d+$', '', id_pregunta)
+    match = re.search(r'_pregunta\d+', id_pregunta)
+    if match:
+        return id_pregunta[:match.start()]
+    return id_pregunta
 
 # Función para obtener una pregunta aleatoria que no se haya mostrado todavía
 def get_random_question():
