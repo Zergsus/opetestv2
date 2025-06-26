@@ -7,61 +7,111 @@
 import streamlit as st
 import json
 import random
+import re
+from collections import defaultdict
 
 # Cargar las preguntas desde el archivo JSON
 with open('preguntas.json', 'r', encoding='utf-8') as f:
     preguntas_dict = json.load(f)
+    todas_las_claves = list(preguntas_dict.keys())
 
-def get_random_question():
-    key = random.choice(list(preguntas_dict.keys()))
-    pregunta = preguntas_dict[key]
-    return key, pregunta
+# Inicializar el estado de la sesión
+if 'preguntas_mostradas' not in st.session_state:
+    st.session_state.preguntas_mostradas = []
 
-# Inicializar el estado de la sesión si no está ya inicializado
+if 'estadisticas' not in st.session_state:
+    st.session_state.estadisticas = defaultdict(int)
+
 if 'current_question' not in st.session_state:
-    st.session_state.current_question = get_random_question()
+    st.session_state.current_question = None
     st.session_state.show_answer = False
     st.session_state.selected_option = None
 
-key, pregunta = st.session_state.current_question
+# Función para obtener nombre del examen desde el ID de pregunta
+def extraer_nombre_examen(id_pregunta):
+    return re.sub(r'_pregunta\d+$', '', id_pregunta)
+
+# Función para obtener una pregunta aleatoria que no se haya mostrado todavía
+def get_random_question():
+    preguntas_restantes = list(set(todas_las_claves) - set(st.session_state.preguntas_mostradas))
+    if not preguntas_restantes:
+        return None, None
+    key = random.choice(preguntas_restantes)
+    pregunta = preguntas_dict[key]
+    st.session_state.preguntas_mostradas.append(key)
+    examen = extraer_nombre_examen(key)
+    st.session_state.estadisticas[examen] += 1
+    return key, pregunta
+
+# Botón para reiniciar preguntas
+if st.button("🔄 Reiniciar preguntas"):
+    st.session_state.preguntas_mostradas = []
+    st.session_state.estadisticas = defaultdict(int)
+    st.session_state.current_question = None
+    st.session_state.selected_option = None
+    st.session_state.show_answer = False
+    st.rerun()
+
+# Botón para mostrar estadísticas
+if st.button("📊 Estadísticas"):
+    st.subheader("Preguntas mostradas por examen")
+    if st.session_state.estadisticas:
+        for examen, cuenta in sorted(st.session_state.estadisticas.items()):
+            st.write(f"- **{examen}**: {cuenta} pregunta(s)")
+    else:
+        st.info("Aún no se ha mostrado ninguna pregunta.")
+
+# Obtener nueva pregunta si no hay ninguna activa
+if st.session_state.current_question is None:
+    key, pregunta = get_random_question()
+    if pregunta is None:
+        st.warning("Ya se han mostrado todas las preguntas.")
+    else:
+        st.session_state.current_question = (key, pregunta)
+else:
+    key, pregunta = st.session_state.current_question
 
 st.title("Aplicación de Preguntas Tipo Test")
 
-# Mostrar la pregunta con markdown y tamaño de letra uniforme
-st.markdown(f"<div style='font-size: 20px'>{pregunta['pregunta']}</div>", unsafe_allow_html=True)
+# Mostrar progreso
+total = len(todas_las_claves)
+respondidas = len(st.session_state.preguntas_mostradas)
+st.markdown(f"**Progreso:** {respondidas} de {total} preguntas respondidas")
 
-# Crear una lista de opciones que combine las claves con sus textos
-opciones = [f"{opcion}) {texto}" for opcion, texto in pregunta['opciones'].items()]
+# Si quedan preguntas, mostrar contenido
+if pregunta:
+    st.markdown(f"<div style='font-size: 20px'>{pregunta['pregunta']}</div>", unsafe_allow_html=True)
 
-# Mostrar las opciones en el radio button
-st.session_state.selected_option = st.radio("Selecciona una opción:", opciones, index=opciones.index(st.session_state.selected_option) if st.session_state.selected_option else 0)
+    opciones = [f"{opcion}) {texto}" for opcion, texto in pregunta['opciones'].items()]
+    st.session_state.selected_option = st.radio(
+        "Selecciona una opción:",
+        opciones,
+        index=opciones.index(st.session_state.selected_option) if st.session_state.selected_option else 0
+    )
 
-# Verificar respuesta
-if st.button("Comprobar respuesta"):
-    respuesta_correcta = pregunta['respuesta_correcta']
-    respuesta_correcta_texto = f"{respuesta_correcta}) {pregunta['opciones'][respuesta_correcta]}"
-    
-    if st.session_state.selected_option == respuesta_correcta_texto:
-        st.success("¡Correcto!")
-    else:
-        st.error(f"Incorrecto. La respuesta correcta es: {respuesta_correcta_texto}")
-    
-    st.session_state.show_answer = True
+    if st.button("Comprobar respuesta"):
+        respuesta_correcta = pregunta['respuesta_correcta']
+        texto_correcto = f"{respuesta_correcta}) {pregunta['opciones'][respuesta_correcta]}"
+        if st.session_state.selected_option == texto_correcto:
+            st.success("¡Correcto!")
+        else:
+            st.error(f"Incorrecto. La respuesta correcta es: {texto_correcto}")
+        st.session_state.show_answer = True
 
-# Mostrar siempre el botón "Siguiente pregunta"
-if st.button("Siguiente pregunta"):
-    st.session_state.current_question = get_random_question()
-    st.session_state.show_answer = False
-    st.session_state.selected_option = None
-    st.rerun()  # Usar experimental_rerun para actualizar la interfaz
+    if st.button("Siguiente pregunta"):
+        key, pregunta = get_random_question()
+        if pregunta is None:
+            st.warning("Ya se han mostrado todas las preguntas.")
+            st.session_state.current_question = None
+        else:
+            st.session_state.current_question = (key, pregunta)
+            st.session_state.show_answer = False
+            st.session_state.selected_option = None
+        st.rerun()
 
-# Mostrar la información de la pregunta
-if st.button("Mostrar información"):
-    st.info(f"ID de la pregunta: {key}")
+    if st.button("Mostrar información"):
+        st.info(f"ID de la pregunta: {key}")
 
-# Mostrar feedback basado en el estado de show_answer
-if st.session_state.show_answer:
-    st.write("Respuesta mostrada")
+    st.write("Respuesta mostrada" if st.session_state.show_answer else "Responda la pregunta")
 else:
-    st.write("Responda la pregunta")
-
+    st.info("Haz clic en 'Reiniciar preguntas' para empezar de nuevo.")
